@@ -1,0 +1,15 @@
+{
+  "short_name": "NousDeeux",
+  "name": "NousDeeux - App Familiale",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#6C63FF",
+  "background_color": "#0F0E17"
+}
