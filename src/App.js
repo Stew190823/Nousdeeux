@@ -18,6 +18,7 @@ const db = getFirestore(app);
 const USERS = {
   moi: { name: "Moi", color: "#6C63FF", emoji: "👨" },
   epouse: { name: "Mon épouse", color: "#FF6B9D", emoji: "👩" },
+  nous: { name: "Nous deux", color: "#FF9500", emoji: "💑" },
 };
 
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
@@ -151,19 +152,26 @@ export default function FamilleApp() {
           </div>
           <div style={{ fontSize: 11, color: "#9e9cb8", marginTop: 1 }}>Votre espace familial</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {Object.entries(USERS).map(([key, u]) => (
-            <button key={key} onClick={() => setCurrentUser(key)} style={{
-              background: currentUser === key ? u.color : "rgba(255,255,255,0.07)",
-              border: "none", borderRadius: 20, padding: "6px 14px",
-              color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 5,
-              transition: "all 0.2s",
-              boxShadow: currentUser === key ? `0 0 12px ${u.color}55` : "none"
-            }}>
-              {u.emoji} {key === "moi" ? "Moi" : "Elle"}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 6 }}>
+          {[
+            { key: "moi", label: "Moi", emoji: "👨" },
+            { key: "epouse", label: "Elle", emoji: "👩" },
+            { key: "nous", label: "Nous", emoji: "💑" },
+          ].map(({ key, label, emoji }) => {
+            const u = USERS[key];
+            return (
+              <button key={key} onClick={() => setCurrentUser(key)} style={{
+                background: currentUser === key ? u.color : "rgba(255,255,255,0.07)",
+                border: "none", borderRadius: 20, padding: "5px 10px",
+                color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 4,
+                transition: "all 0.2s",
+                boxShadow: currentUser === key ? `0 0 12px ${u.color}55` : "none"
+              }}>
+                {emoji} {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -183,13 +191,13 @@ export default function FamilleApp() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
               {cells.map((d, i) => {
-                if (!d) return <div key={i} />;
+                if (!d) return <div key={`empty-${i}`} />;
                 const evs = getEventsForDay(d);
                 const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                 const isToday = dateStr === todayStr;
                 const isSelected = selectedDay === d;
                 return (
-                  <div key={i} onClick={() => { setSelectedDay(d === selectedDay ? null : d); setShowEventForm(false); }} style={{
+                  <div key={`day-${d}`} onClick={() => { setSelectedDay(d === selectedDay ? null : d); setShowEventForm(false); }} style={{
                     background: isSelected ? "rgba(108,99,255,0.25)" : isToday ? "rgba(108,99,255,0.1)" : "rgba(255,255,255,0.04)",
                     borderRadius: 10, padding: "6px 4px", minHeight: 52, cursor: "pointer",
                     border: isToday ? "1.5px solid #6C63FF" : isSelected ? "1.5px solid rgba(108,99,255,0.6)" : "1.5px solid transparent",
