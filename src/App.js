@@ -45,26 +45,79 @@ export default function FamilleApp() {
   const [newMsg, setNewMsg] = useState("");
   const [items, setItems] = useState([]);
   const [newItem, setNewItem] = useState("");
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadEvents, setUnreadEvents] = useState(0);
+  const [toast, setToast] = useState(null);
+  const lastMsgCount = useState(0);
+  const lastEventCount = useState(0);
+  const isFirstLoad = { msgs: true, events: true };
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
+  function playNotifSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      o.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+      g.gain.setValueAtTime(0.3, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      o.start(ctx.currentTime);
+      o.stop(ctx.currentTime + 0.4);
+    } catch(e) {}
+  }
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  }
+
   // Firebase listeners
   useEffect(() => {
+    let first = true;
     const unsub = onSnapshot(collection(db, "events"), snap => {
-      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const evs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (!first) {
+        const added = snap.docChanges().filter(c => c.type === "added");
+        if (added.length > 0) {
+          const e = added[0].doc.data();
+          if (e.by !== currentUser) {
+            setUnreadEvents(n => n + added.length);
+            playNotifSound();
+            showToast(`📅 Nouvel événement : ${e.title}`);
+          }
+        }
+      }
+      first = false;
+      setEvents(evs);
     });
     return unsub;
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
+    let first = true;
     const unsub = onSnapshot(collection(db, "messages"), snap => {
       const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      if (!first) {
+        const added = snap.docChanges().filter(c => c.type === "added");
+        if (added.length > 0) {
+          const m = added[0].doc.data();
+          if (m.from !== currentUser) {
+            setUnreadMessages(n => n + added.length);
+            playNotifSound();
+            showToast(`💬 ${USERS[m.from]?.name} : ${m.text.slice(0, 40)}${m.text.length > 40 ? "..." : ""}`);
+          }
+        }
+      }
+      first = false;
       setMessages(msgs);
     });
     return unsub;
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "items"), snap => {
@@ -139,6 +192,21 @@ export default function FamilleApp() {
       fontFamily: "'Nunito', 'Segoe UI', sans-serif",
       color: "#FFFFFE", display: "flex", flexDirection: "column"
     }}>
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: "fixed", top: 16, left: 16, right: 16, zIndex: 9999,
+          background: "linear-gradient(135deg,#1a1830,#2d2850)",
+          border: "1px solid rgba(108,99,255,0.4)",
+          borderRadius: 16, padding: "14px 18px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          fontSize: 14, fontWeight: 600,
+          animation: "slideDown 0.3s ease"
+        }}>
+          <style>{`@keyframes slideDown { from { transform: translateY(-20px); opacity:0; } to { transform: translateY(0); opacity:1; } }`}</style>
+          {toast}
+        </div>
+      )}
       {/* Header */}
       <div style={{
         background: "linear-gradient(135deg, #1a1830 0%, #231f3a 100%)",
@@ -399,17 +467,32 @@ export default function FamilleApp() {
         display:"flex", justifyContent:"space-around", padding:"10px 0 16px"
       }}>
         {[
-          { id:"calendar", icon:"📅", label:"Agenda" },
-          { id:"messages", icon:"💬", label:"Messages" },
-          { id:"shopping", icon:"🛒", label:"Courses" },
+          { id:"calendar", icon:"📅", label:"Agenda", badge: unreadEvents },
+          { id:"messages", icon:"💬", label:"Messages", badge: unreadMessages },
+          { id:"shopping", icon:"🛒", label:"Courses", badge: 0 },
         ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+          <button key={t.id} onClick={() => {
+            setTab(t.id);
+            if (t.id === "messages") setUnreadMessages(0);
+            if (t.id === "calendar") setUnreadEvents(0);
+          }} style={{
             background:"none", border:"none", cursor:"pointer", display:"flex", flexDirection:"column",
             alignItems:"center", gap:3, padding:"6px 20px", borderRadius:12,
             opacity: tab === t.id ? 1 : 0.45, transition:"all 0.2s",
-            transform: tab === t.id ? "scale(1.1)" : "scale(1)"
+            transform: tab === t.id ? "scale(1.1)" : "scale(1)", position:"relative"
           }}>
-            <div style={{ fontSize:24 }}>{t.icon}</div>
+            <div style={{ fontSize:24, position:"relative" }}>
+              {t.icon}
+              {t.badge > 0 && (
+                <div style={{
+                  position:"absolute", top:-6, right:-8,
+                  background:"#ff3b30", borderRadius:"50%",
+                  width:18, height:18, fontSize:10, fontWeight:800,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  color:"#fff", border:"2px solid #0F0E17"
+                }}>{t.badge > 9 ? "9+" : t.badge}</div>
+              )}
+            </div>
             <div style={{ fontSize:11, fontWeight:700, color: tab === t.id ? "#6C63FF" : "#9e9cb8" }}>{t.label}</div>
             {tab === t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:"#6C63FF" }} />}
           </button>
