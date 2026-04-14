@@ -1,4 +1,19 @@
 import { useState, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCanLILgOChVFbcITjJe2JdbC",
+  authDomain: "nousdeeux-ce98b.firebaseapp.com",
+  projectId: "nousdeeux-ce98b",
+  storageBucket: "nousdeeux-ce98b.firebasestorage.app",
+  messagingSenderId: "290677739010",
+  appId: "1:290677739010:web:cb93ef4eb4ab",
+  measurementId: "G-4DQ9676PDY"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const USERS = {
   moi: { name: "Moi", color: "#6C63FF", emoji: "👨" },
@@ -16,47 +31,48 @@ function getFirstDayOfMonth(year, month) {
   return d === 0 ? 6 : d - 1;
 }
 
-const initialMessages = [
-  { id: 1, from: "epouse", text: "N'oublie pas le dentiste demain ! 🦷", time: "09:14", date: "Aujourd'hui" },
-  { id: 2, from: "moi", text: "Merci du rappel ! Je vais partir à 14h.", time: "09:22", date: "Aujourd'hui" },
-  { id: 3, from: "epouse", text: "Super 😊 Tu peux aussi passer chercher le pain ?", time: "09:25", date: "Aujourd'hui" },
-];
-
-const initialItems = [
-  { id: 1, text: "Pain complet", done: false, by: "epouse" },
-  { id: 2, text: "Lait demi-écrémé (x2)", done: true, by: "moi" },
-  { id: 3, text: "Fromage râpé", done: false, by: "epouse" },
-  { id: 4, text: "Yaourts nature", done: false, by: "moi" },
-  { id: 5, text: "Pommes (1kg)", done: true, by: "epouse" },
-  { id: 6, text: "Pâtes fusilli", done: false, by: "moi" },
-];
-
-const initialEvents = [
-  { id: 1, title: "Dentiste", date: "2026-04-15", color: "#FF6B9D", by: "epouse", time: "15:00" },
-  { id: 2, title: "Réunion parents", date: "2026-04-18", color: "#6C63FF", by: "moi", time: "18:00" },
-  { id: 3, title: "Anniversaire Maman", date: "2026-04-22", color: "#FF6B9D", by: "epouse", time: "" },
-  { id: 4, title: "Weekend montagne", date: "2026-04-25", color: "#6C63FF", by: "moi", time: "" },
-  { id: 5, title: "Cinéma", date: "2026-04-17", color: "#6C63FF", by: "moi", time: "20:30" },
-];
-
 export default function FamilleApp() {
   const [tab, setTab] = useState("calendar");
   const [currentUser, setCurrentUser] = useState("moi");
   const [year, setYear] = useState(2026);
-  const [month, setMonth] = useState(3); // avril
-  const [events, setEvents] = useState(initialEvents);
+  const [month, setMonth] = useState(3);
+  const [events, setEvents] = useState([]);
   const [selectedDay, setSelectedDay] = useState(null);
   const [showEventForm, setShowEventForm] = useState(false);
   const [newEvent, setNewEvent] = useState({ title: "", time: "" });
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState([]);
   const [newMsg, setNewMsg] = useState("");
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState([]);
   const [newItem, setNewItem] = useState("");
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-  // Calendar helpers
+  // Firebase listeners
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "events"), snap => {
+      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "messages"), snap => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      msgs.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      setMessages(msgs);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "items"), snap => {
+      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, []);
+
+  // Calendar
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
   const cells = [];
@@ -68,43 +84,50 @@ export default function FamilleApp() {
     return events.filter(e => e.date === dateStr);
   }
 
-  function addEvent() {
+  async function addEvent() {
     if (!newEvent.title.trim() || !selectedDay) return;
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(selectedDay).padStart(2,'0')}`;
-    setEvents([...events, {
-      id: Date.now(), title: newEvent.title, date: dateStr,
+    await addDoc(collection(db, "events"), {
+      title: newEvent.title, date: dateStr,
       color: USERS[currentUser].color, by: currentUser, time: newEvent.time
-    }]);
+    });
     setNewEvent({ title: "", time: "" });
     setShowEventForm(false);
   }
 
-  function deleteEvent(id) {
-    setEvents(events.filter(e => e.id !== id));
+  async function deleteEvent(id) {
+    await deleteDoc(doc(db, "events", id));
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     if (!newMsg.trim()) return;
-    setMessages([...messages, {
-      id: Date.now(), from: currentUser, text: newMsg,
+    await addDoc(collection(db, "messages"), {
+      from: currentUser, text: newMsg,
       time: `${today.getHours()}:${String(today.getMinutes()).padStart(2,'0')}`,
-      date: "Aujourd'hui"
-    }]);
+      date: "Aujourd'hui", timestamp: Date.now()
+    });
     setNewMsg("");
   }
 
-  function toggleItem(id) {
-    setItems(items.map(it => it.id === id ? { ...it, done: !it.done } : it));
+  async function toggleItem(id, done) {
+    await updateDoc(doc(db, "items", id), { done: !done });
   }
 
-  function addItem() {
+  async function addItem() {
     if (!newItem.trim()) return;
-    setItems([...items, { id: Date.now(), text: newItem, done: false, by: currentUser }]);
+    await addDoc(collection(db, "items"), { text: newItem, done: false, by: currentUser });
     setNewItem("");
   }
 
-  function deleteItem(id) {
-    setItems(items.filter(i => i.id !== id));
+  async function deleteItem(id) {
+    await deleteDoc(doc(db, "items", id));
+  }
+
+  async function clearDoneItems() {
+    const doneItems = items.filter(i => i.done);
+    for (const item of doneItems) {
+      await deleteDoc(doc(db, "items", item.id));
+    }
   }
 
   const doneCount = items.filter(i => i.done).length;
@@ -128,7 +151,6 @@ export default function FamilleApp() {
           </div>
           <div style={{ fontSize: 11, color: "#9e9cb8", marginTop: 1 }}>Votre espace familial</div>
         </div>
-        {/* User switcher */}
         <div style={{ display: "flex", gap: 8 }}>
           {Object.entries(USERS).map(([key, u]) => (
             <button key={key} onClick={() => setCurrentUser(key)} style={{
@@ -151,17 +173,14 @@ export default function FamilleApp() {
         {/* CALENDAR TAB */}
         {tab === "calendar" && (
           <div>
-            {/* Month nav */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <button onClick={() => { if (month === 0) { setMonth(11); setYear(y => y-1); } else setMonth(m => m-1); }} style={navBtn}>‹</button>
               <span style={{ fontWeight: 800, fontSize: 18 }}>{MONTHS[month]} {year}</span>
               <button onClick={() => { if (month === 11) { setMonth(0); setYear(y => y+1); } else setMonth(m => m+1); }} style={navBtn}>›</button>
             </div>
-            {/* Days header */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 4 }}>
               {DAYS.map(d => <div key={d} style={{ textAlign:"center", fontSize:11, color:"#9e9cb8", fontWeight:700, padding:"4px 0" }}>{d}</div>)}
             </div>
-            {/* Calendar grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
               {cells.map((d, i) => {
                 if (!d) return <div key={i} />;
@@ -191,19 +210,15 @@ export default function FamilleApp() {
               })}
             </div>
 
-            {/* Selected day detail */}
             {selectedDay && (
               <div style={{ marginTop: 16, background:"rgba(255,255,255,0.05)", borderRadius:16, padding:16 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                  <div style={{ fontWeight:800, fontSize:16 }}>
-                    {selectedDay} {MONTHS[month]}
-                  </div>
+                  <div style={{ fontWeight:800, fontSize:16 }}>{selectedDay} {MONTHS[month]}</div>
                   <button onClick={() => setShowEventForm(!showEventForm)} style={{
                     background: "linear-gradient(135deg,#6C63FF,#FF6B9D)", border:"none", borderRadius:20,
                     color:"#fff", padding:"6px 14px", fontWeight:700, fontSize:13, cursor:"pointer"
                   }}>+ Ajouter</button>
                 </div>
-
                 {showEventForm && (
                   <div style={{ background:"rgba(108,99,255,0.1)", borderRadius:12, padding:12, marginBottom:12 }}>
                     <input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})}
@@ -219,7 +234,6 @@ export default function FamilleApp() {
                     </div>
                   </div>
                 )}
-
                 {getEventsForDay(selectedDay).length === 0 ? (
                   <div style={{ color:"#9e9cb8", fontSize:14, textAlign:"center", padding:"12px 0" }}>Aucun événement ce jour</div>
                 ) : (
@@ -231,9 +245,7 @@ export default function FamilleApp() {
                       <div style={{ width:10, height:10, borderRadius:"50%", background:e.color, flexShrink:0 }} />
                       <div style={{ flex:1 }}>
                         <div style={{ fontWeight:700, fontSize:14 }}>{e.title}</div>
-                        <div style={{ fontSize:11, color:"#9e9cb8" }}>
-                          {e.time && `${e.time} · `}{USERS[e.by].emoji} {USERS[e.by].name}
-                        </div>
+                        <div style={{ fontSize:11, color:"#9e9cb8" }}>{e.time && `${e.time} · `}{USERS[e.by]?.emoji} {USERS[e.by]?.name}</div>
                       </div>
                       <button onClick={() => deleteEvent(e.id)} style={{ background:"none", border:"none", color:"#ff5566", cursor:"pointer", fontSize:16 }}>×</button>
                     </div>
@@ -242,13 +254,12 @@ export default function FamilleApp() {
               </div>
             )}
 
-            {/* Upcoming events */}
             <div style={{ marginTop: 20 }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:10, color:"#9e9cb8" }}>PROCHAINS ÉVÉNEMENTS</div>
               {events.sort((a,b) => a.date.localeCompare(b.date)).slice(0,5).map(e => {
                 const d = new Date(e.date);
                 const dayN = d.getDate();
-                const mon = MONTHS[d.getMonth()].slice(0,3);
+                const mon = MONTHS[d.getMonth()]?.slice(0,3);
                 return (
                   <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10,
                     background:"rgba(255,255,255,0.04)", borderRadius:14, padding:"10px 14px" }}>
@@ -258,7 +269,7 @@ export default function FamilleApp() {
                     </div>
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:700 }}>{e.title}</div>
-                      <div style={{ fontSize:12, color:"#9e9cb8" }}>{e.time || "Toute la journée"} · {USERS[e.by].emoji} {USERS[e.by].name}</div>
+                      <div style={{ fontSize:12, color:"#9e9cb8" }}>{e.time || "Toute la journée"} · {USERS[e.by]?.emoji} {USERS[e.by]?.name}</div>
                     </div>
                   </div>
                 );
@@ -282,8 +293,8 @@ export default function FamilleApp() {
                       <div style={{ textAlign:"center", color:"#9e9cb8", fontSize:12, margin:"8px 0" }}>{m.date}</div>
                     )}
                     <div style={{ display:"flex", flexDirection: isMe ? "row-reverse" : "row", gap:10, alignItems:"flex-end" }}>
-                      <div style={{ width:32, height:32, borderRadius:"50%", background: u.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
-                        {u.emoji}
+                      <div style={{ width:32, height:32, borderRadius:"50%", background: u?.color, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>
+                        {u?.emoji}
                       </div>
                       <div style={{
                         background: isMe ? "linear-gradient(135deg,#6C63FF,#8B7FFF)" : "rgba(255,255,255,0.08)",
@@ -298,7 +309,6 @@ export default function FamilleApp() {
                 );
               })}
             </div>
-            {/* Input */}
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
               <input value={newMsg} onChange={e => setNewMsg(e.target.value)} placeholder="Écrire un message..."
                 onKeyDown={e => e.key === "Enter" && sendMessage()}
@@ -317,27 +327,19 @@ export default function FamilleApp() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
               <div>
                 <div style={{ fontWeight:800, fontSize:18 }}>🛒 Liste de courses</div>
-                <div style={{ fontSize:13, color:"#9e9cb8", marginTop:2 }}>
-                  {doneCount}/{items.length} articles cochés
-                </div>
+                <div style={{ fontSize:13, color:"#9e9cb8", marginTop:2 }}>{doneCount}/{items.length} articles cochés</div>
               </div>
-              <button onClick={() => setItems(items.filter(i => !i.done))} style={{
+              <button onClick={clearDoneItems} style={{
                 background:"rgba(255,85,102,0.15)", border:"1px solid rgba(255,85,102,0.3)",
                 borderRadius:10, color:"#ff5566", padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer"
               }}>🗑 Effacer cochés</button>
             </div>
-
-            {/* Progress bar */}
             <div style={{ background:"rgba(255,255,255,0.08)", borderRadius:20, height:6, marginBottom:20, overflow:"hidden" }}>
               <div style={{
-                background:"linear-gradient(90deg,#6C63FF,#FF6B9D)",
-                height:"100%", borderRadius:20,
-                width: items.length ? `${(doneCount/items.length)*100}%` : "0%",
-                transition: "width 0.4s ease"
+                background:"linear-gradient(90deg,#6C63FF,#FF6B9D)", height:"100%", borderRadius:20,
+                width: items.length ? `${(doneCount/items.length)*100}%` : "0%", transition: "width 0.4s ease"
               }} />
             </div>
-
-            {/* Add item */}
             <div style={{ display:"flex", gap:8, marginBottom:20 }}>
               <input value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Ajouter un article..."
                 onKeyDown={e => e.key === "Enter" && addItem()}
@@ -347,23 +349,18 @@ export default function FamilleApp() {
                 color:"#fff", padding:"10px 16px", fontWeight:700, cursor:"pointer", fontSize:18
               }}>+</button>
             </div>
-
-            {/* Items */}
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {[...items.filter(i => !i.done), ...items.filter(i => i.done)].map(item => (
-                <div key={item.id} onClick={() => toggleItem(item.id)} style={{
+                <div key={item.id} onClick={() => toggleItem(item.id, item.done)} style={{
                   display:"flex", alignItems:"center", gap:12, cursor:"pointer",
                   background: item.done ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.06)",
-                  borderRadius:14, padding:"12px 14px",
-                  transition: "all 0.2s",
-                  opacity: item.done ? 0.5 : 1
+                  borderRadius:14, padding:"12px 14px", transition: "all 0.2s", opacity: item.done ? 0.5 : 1
                 }}>
                   <div style={{
                     width:22, height:22, borderRadius:"50%", flexShrink:0,
-                    border: item.done ? "none" : `2px solid ${USERS[item.by].color}`,
-                    background: item.done ? USERS[item.by].color : "transparent",
-                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:13,
-                    transition:"all 0.2s"
+                    border: item.done ? "none" : `2px solid ${USERS[item.by]?.color}`,
+                    background: item.done ? USERS[item.by]?.color : "transparent",
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, transition:"all 0.2s"
                   }}>
                     {item.done && "✓"}
                   </div>
@@ -372,7 +369,7 @@ export default function FamilleApp() {
                       {item.text}
                     </div>
                     <div style={{ fontSize:11, color:"#9e9cb8", marginTop:1 }}>
-                      {USERS[item.by].emoji} {USERS[item.by].name}
+                      {USERS[item.by]?.emoji} {USERS[item.by]?.name}
                     </div>
                   </div>
                   <button onClick={e => { e.stopPropagation(); deleteItem(item.id); }} style={{
@@ -404,9 +401,7 @@ export default function FamilleApp() {
             transform: tab === t.id ? "scale(1.1)" : "scale(1)"
           }}>
             <div style={{ fontSize:24 }}>{t.icon}</div>
-            <div style={{
-              fontSize:11, fontWeight:700, color: tab === t.id ? "#6C63FF" : "#9e9cb8"
-            }}>{t.label}</div>
+            <div style={{ fontSize:11, fontWeight:700, color: tab === t.id ? "#6C63FF" : "#9e9cb8" }}>{t.label}</div>
             {tab === t.id && <div style={{ width:4, height:4, borderRadius:"50%", background:"#6C63FF" }} />}
           </button>
         ))}
