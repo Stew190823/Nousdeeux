@@ -199,19 +199,20 @@ export default function FamilleApp() {
                 return (
                   <div key={`day-${d}`} onClick={() => { setSelectedDay(d === selectedDay ? null : d); setShowEventForm(false); }} style={{
                     background: isSelected ? "rgba(108,99,255,0.25)" : isToday ? "rgba(108,99,255,0.1)" : "rgba(255,255,255,0.04)",
-                    borderRadius: 10, padding: "6px 4px", minHeight: 52, cursor: "pointer",
+                    borderRadius: 10, padding: "4px 3px", minHeight: 48, cursor: "pointer",
                     border: isToday ? "1.5px solid #6C63FF" : isSelected ? "1.5px solid rgba(108,99,255,0.6)" : "1.5px solid transparent",
-                    transition: "all 0.15s"
+                    transition: "all 0.15s", overflow: "hidden"
                   }}>
                     <div style={{ textAlign:"center", fontWeight: isToday ? 800 : 500, fontSize: 13, color: isToday ? "#6C63FF" : "#FFFFFE", marginBottom: 3 }}>{d}</div>
-                    <div style={{ display:"flex", flexDirection:"column", gap: 2 }}>
+                    <div style={{ display:"flex", flexDirection:"column", gap: 2, overflow:"hidden" }}>
                       {evs.slice(0,2).map(e => (
                         <div key={e.id} style={{
-                          background: e.color, borderRadius: 4, fontSize: 9, padding: "1px 4px",
-                          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontWeight: 600
+                          background: e.color, borderRadius: 3, fontSize: 8, padding: "1px 3px",
+                          overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                          fontWeight: 700, maxWidth:"100%", lineHeight: 1.3
                         }}>{e.title}</div>
                       ))}
-                      {evs.length > 2 && <div style={{ fontSize: 9, color:"#9e9cb8", textAlign:"center" }}>+{evs.length-2}</div>}
+                      {evs.length > 2 && <div style={{ fontSize: 8, color:"#9e9cb8", textAlign:"center", fontWeight:700 }}>+{evs.length-2}</div>}
                     </div>
                   </div>
                 );
