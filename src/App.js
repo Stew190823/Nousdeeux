@@ -233,7 +233,7 @@ export default function FamilleApp() {
         <div style={{ display:"flex", gap:5 }}>
           {[
             { key:"moi", label:"Stew", emoji:"👨" },
-            { key:"epouse", label:"Elle", emoji:"👩" },
+            { key:"epouse", label:"Laurettina", emoji:"👩" },
             { key:"nous", label:"Nous", emoji:"💑" },
           ].map(({ key, label, emoji }) => (
             <button key={key} onClick={() => setCurrentUser(key)} style={{ background:currentUser===key?USERS[key].color:"rgba(255,255,255,0.07)", border:"none", borderRadius:20, padding:"5px 10px", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", display:"flex", alignItems:"center", gap:3, transition:"all 0.2s", boxShadow:currentUser===key?`0 0 12px ${USERS[key].color}55`:"none" }}>
