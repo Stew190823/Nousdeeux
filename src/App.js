@@ -28,6 +28,8 @@ function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function getFirstDayOfMonth(y, m) { let d = new Date(y, m, 1).getDay(); return d === 0 ? 6 : d - 1; }
 function mkDate(y, m, d) { return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
 
+const EMPTY_EVENT = { title: "", timeStart: "", dateEnd: "", recurrence: "none", assignedTo: "moi" };
+
 export default function FamilleApp() {
   const [tab, setTab] = useState("calendar");
   const [currentUser, setCurrentUser] = useState("moi");
@@ -37,7 +39,7 @@ export default function FamilleApp() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showEventForm, setShowEventForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [newEvent, setNewEvent] = useState({ title: "", timeStart: "", dateEnd: "" });
+  const [newEvent, setNewEvent] = useState({ ...EMPTY_EVENT });
   const [messages, setMessages] = useState([]);
   const [newMsg, setNewMsg] = useState("");
   const [items, setItems] = useState([]);
@@ -112,9 +114,12 @@ export default function FamilleApp() {
     return unsub;
   }, []);
 
+  // For recurring annual events: check if an event appears on this month/day regardless of year
   function getEventsForDay(d) {
     const ds = mkDate(year, month, d);
+    const mmdd = ds.slice(5); // MM-DD
     return events.filter(e => {
+      if (e.recurrence === "annual" && e.date.slice(5) === mmdd) return true;
       const end = e.dateEnd && e.dateEnd >= e.date ? e.dateEnd : e.date;
       return ds >= e.date && ds <= end;
     });
@@ -123,10 +128,15 @@ export default function FamilleApp() {
   async function saveEvent() {
     if (!newEvent.title.trim() || !selectedDay) return;
     const ds = mkDate(year, month, selectedDay);
+    const owner = newEvent.assignedTo || currentUser;
     const payload = {
-      title: newEvent.title, date: ds,
+      title: newEvent.title,
+      date: ds,
       dateEnd: newEvent.dateEnd && newEvent.dateEnd >= ds ? newEvent.dateEnd : ds,
-      color: USERS[currentUser].color, by: currentUser, time: newEvent.timeStart
+      color: USERS[owner].color,
+      by: owner,
+      time: newEvent.timeStart,
+      recurrence: newEvent.recurrence || "none",
     };
     if (editingEvent) {
       await updateDoc(doc(db, "events", editingEvent.id), payload);
@@ -134,13 +144,19 @@ export default function FamilleApp() {
     } else {
       await addDoc(collection(db, "events"), payload);
     }
-    setNewEvent({ title: "", timeStart: "", dateEnd: "" });
+    setNewEvent({ ...EMPTY_EVENT, assignedTo: currentUser });
     setShowEventForm(false);
   }
 
   function startEdit(e) {
     setEditingEvent(e);
-    setNewEvent({ title: e.title, timeStart: e.time || "", dateEnd: e.dateEnd || e.date });
+    setNewEvent({
+      title: e.title,
+      timeStart: e.time || "",
+      dateEnd: e.dateEnd || e.date,
+      recurrence: e.recurrence || "none",
+      assignedTo: e.by || currentUser,
+    });
     setShowEventForm(true);
   }
 
@@ -157,6 +173,7 @@ export default function FamilleApp() {
   }
 
   async function toggleItem(id, done) { await updateDoc(doc(db, "items", id), { done: !done }); }
+  async function updateItemOwner(id, newOwner) { await updateDoc(doc(db, "items", id), { by: newOwner }); }
   async function addItem() {
     if (!newItem.trim()) return;
     await addDoc(collection(db, "items"), { text: newItem, done: false, by: currentUser });
@@ -173,6 +190,27 @@ export default function FamilleApp() {
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  // Owner picker component (inline)
+  function OwnerPicker({ value, onChange, label }) {
+    return (
+      <div>
+        <div style={{ fontSize:11, color:"#9e9cb8", marginBottom:4, fontWeight:700 }}>{label}</div>
+        <div style={{ display:"flex", gap:6 }}>
+          {Object.entries(USERS).map(([key, u]) => (
+            <button key={key} onClick={() => onChange(key)} style={{
+              background: value===key ? u.color : "rgba(255,255,255,0.07)",
+              border:"none", borderRadius:16, padding:"5px 10px",
+              color:"#fff", fontWeight:700, fontSize:11, cursor:"pointer",
+              display:"flex", alignItems:"center", gap:3,
+              boxShadow: value===key ? `0 0 8px ${u.color}55` : "none",
+              transition:"all 0.2s"
+            }}>{u.emoji} {u.name}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight:"100vh", background:"#0F0E17", fontFamily:"'Nunito','Segoe UI',sans-serif", color:"#FFFFFE", display:"flex", flexDirection:"column" }}>
@@ -232,7 +270,7 @@ export default function FamilleApp() {
                     <div style={{ display:"flex", flexDirection:"column", gap:2, overflow:"hidden" }}>
                       {evs.slice(0,2).map(e => (
                         <div key={e.id} style={{ background:e.color, borderRadius:3, fontSize:8, padding:"1px 3px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontWeight:700, lineHeight:1.3 }}>
-                          {e.date === ds ? e.title : "▶"}
+                          {e.recurrence==="annual" ? "🔄 " : ""}{e.date.slice(5)===ds.slice(5)||e.date===ds ? e.title : "▶"}
                         </div>
                       ))}
                       {evs.length > 2 && <div style={{ fontSize:8, color:"#9e9cb8", textAlign:"center", fontWeight:700 }}>+{evs.length-2}</div>}
@@ -246,13 +284,17 @@ export default function FamilleApp() {
               <div style={{ marginTop:16, background:"rgba(255,255,255,0.05)", borderRadius:16, padding:16 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                   <div style={{ fontWeight:800, fontSize:16 }}>{selectedDay} {MONTHS[month]}</div>
-                  <button onClick={() => { setShowEventForm(!showEventForm); setEditingEvent(null); setNewEvent({ title:"", timeStart:"", dateEnd:"" }); }} style={{ background:"linear-gradient(135deg,#2979FF,#9C27B0)", border:"none", borderRadius:20, color:"#fff", padding:"6px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}>+ Ajouter</button>
+                  <button onClick={() => { setShowEventForm(!showEventForm); setEditingEvent(null); setNewEvent({ ...EMPTY_EVENT, assignedTo: currentUser }); }} style={{ background:"linear-gradient(135deg,#2979FF,#9C27B0)", border:"none", borderRadius:20, color:"#fff", padding:"6px 14px", fontWeight:700, fontSize:13, cursor:"pointer" }}>+ Ajouter</button>
                 </div>
 
                 {showEventForm && (
                   <div style={{ background:"rgba(41,121,255,0.1)", borderRadius:12, padding:12, marginBottom:12 }}>
-                    <div style={{ fontSize:12, color:"#9e9cb8", marginBottom:6, fontWeight:700 }}>{editingEvent ? "✏️ Modifier l'événement" : "Nouvel événement"}</div>
+                    <div style={{ fontSize:12, color:"#9e9cb8", marginBottom:8, fontWeight:700 }}>{editingEvent ? "✏️ Modifier l'événement" : "Nouvel événement"}</div>
+
+                    {/* Title */}
                     <input value={newEvent.title} onChange={e => setNewEvent({...newEvent, title:e.target.value})} placeholder="Titre..." style={inputStyle} onKeyDown={e => e.key==="Enter" && saveEvent()} />
+
+                    {/* Time + End date */}
                     <div style={{ display:"flex", gap:8, marginTop:8 }}>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:11, color:"#9e9cb8", marginBottom:3 }}>Heure</div>
@@ -263,8 +305,29 @@ export default function FamilleApp() {
                         <input type="date" value={newEvent.dateEnd} onChange={e => setNewEvent({...newEvent, dateEnd:e.target.value})} style={{...inputStyle, colorScheme:"dark"}} />
                       </div>
                     </div>
-                    <div style={{ display:"flex", gap:8, marginTop:8 }}>
-                      <button onClick={saveEvent} style={{ flex:1, background:USERS[currentUser].color, border:"none", borderRadius:10, color:"#fff", padding:"10px", fontWeight:700, cursor:"pointer" }}>{editingEvent ? "✓ Sauvegarder" : "✓ Créer"}</button>
+
+                    {/* Recurrence */}
+                    <div style={{ marginTop:10 }}>
+                      <div style={{ fontSize:11, color:"#9e9cb8", marginBottom:4, fontWeight:700 }}>Récurrence</div>
+                      <div style={{ display:"flex", gap:6 }}>
+                        {[
+                          { val:"none", label:"Aucune" },
+                          { val:"annual", label:"🔄 Annuelle" },
+                        ].map(opt => (
+                          <button key={opt.val} onClick={() => setNewEvent({...newEvent, recurrence:opt.val})} style={{ background:newEvent.recurrence===opt.val?"linear-gradient(135deg,#2979FF,#9C27B0)":"rgba(255,255,255,0.07)", border:"none", borderRadius:16, padding:"6px 14px", color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer", transition:"all 0.2s" }}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Owner */}
+                    <div style={{ marginTop:10 }}>
+                      <OwnerPicker value={newEvent.assignedTo} onChange={v => setNewEvent({...newEvent, assignedTo:v})} label="Attribué à" />
+                    </div>
+
+                    <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                      <button onClick={saveEvent} style={{ flex:1, background:USERS[newEvent.assignedTo]?.color||USERS[currentUser].color, border:"none", borderRadius:10, color:"#fff", padding:"10px", fontWeight:700, cursor:"pointer" }}>{editingEvent ? "✓ Sauvegarder" : "✓ Créer"}</button>
                       {editingEvent && <button onClick={() => { setEditingEvent(null); setShowEventForm(false); }} style={{ background:"rgba(255,255,255,0.08)", border:"none", borderRadius:10, color:"#fff", padding:"10px 14px", fontWeight:700, cursor:"pointer" }}>Annuler</button>}
                     </div>
                   </div>
@@ -280,7 +343,8 @@ export default function FamilleApp() {
                         <div style={{ fontWeight:700, fontSize:14 }}>{e.title}</div>
                         <div style={{ fontSize:11, color:"#9e9cb8" }}>
                           {e.time ? `${e.time} · ` : ""}
-                          {e.dateEnd && e.dateEnd !== e.date ? `📆 jusqu'au ${e.dateEnd.slice(8)}/${e.dateEnd.slice(5,7)} · ` : ""}
+                          {e.recurrence==="annual" ? "🔄 Annuel · " : ""}
+                          {e.dateEnd && e.dateEnd !== e.date ? `📆 →${e.dateEnd.slice(8)}/${e.dateEnd.slice(5,7)} · ` : ""}
                           {USERS[e.by]?.emoji} {USERS[e.by]?.name}
                         </div>
                       </div>
@@ -292,27 +356,34 @@ export default function FamilleApp() {
               </div>
             )}
 
+            {/* Upcoming */}
             <div style={{ marginTop:20 }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:10, color:"#9e9cb8" }}>PROCHAINS ÉVÉNEMENTS</div>
-              {[...events].sort((a,b) => a.date.localeCompare(b.date)).filter(e => (e.dateEnd||e.date) >= todayStr).slice(0,5).map(e => {
-                const d = new Date(e.date + "T12:00:00");
-                return (
-                  <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10, background:"rgba(255,255,255,0.04)", borderRadius:14, padding:"10px 14px" }}>
-                    <div style={{ background:e.color, borderRadius:10, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-                      <div style={{ fontSize:16, fontWeight:800, lineHeight:1 }}>{d.getDate()}</div>
-                      <div style={{ fontSize:10, fontWeight:600, opacity:0.85 }}>{MONTHS[d.getMonth()]?.slice(0,3)}</div>
-                    </div>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:700 }}>{e.title}</div>
-                      <div style={{ fontSize:12, color:"#9e9cb8" }}>
-                        {e.dateEnd && e.dateEnd !== e.date
-                          ? `${e.date.slice(8)}/${e.date.slice(5,7)} → ${e.dateEnd.slice(8)}/${e.dateEnd.slice(5,7)}`
-                          : (e.time || "Toute la journée")}
-                        {" · "}{USERS[e.by]?.emoji} {USERS[e.by]?.name}
+              {[...events]
+                .sort((a,b) => a.date.slice(5).localeCompare(b.date.slice(5)))
+                .filter(e => {
+                  if (e.recurrence==="annual") return true;
+                  return (e.dateEnd||e.date) >= todayStr;
+                })
+                .slice(0,6).map(e => {
+                  const d = new Date(e.date + "T12:00:00");
+                  return (
+                    <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10, background:"rgba(255,255,255,0.04)", borderRadius:14, padding:"10px 14px" }}>
+                      <div style={{ background:e.color, borderRadius:10, width:42, height:42, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                        <div style={{ fontSize:16, fontWeight:800, lineHeight:1 }}>{d.getDate()}</div>
+                        <div style={{ fontSize:10, fontWeight:600, opacity:0.85 }}>{MONTHS[d.getMonth()]?.slice(0,3)}</div>
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700 }}>{e.recurrence==="annual"?"🔄 ":""}{e.title}</div>
+                        <div style={{ fontSize:12, color:"#9e9cb8" }}>
+                          {e.dateEnd && e.dateEnd!==e.date
+                            ? `${e.date.slice(8)}/${e.date.slice(5,7)} → ${e.dateEnd.slice(8)}/${e.dateEnd.slice(5,7)}`
+                            : (e.time||"Toute la journée")}
+                          {" · "}{USERS[e.by]?.emoji} {USERS[e.by]?.name}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
+                  );
               })}
             </div>
           </div>
@@ -368,15 +439,24 @@ export default function FamilleApp() {
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {[...items.filter(i => !i.done), ...items.filter(i => i.done)].map(item => (
-                <div key={item.id} onClick={() => toggleItem(item.id, item.done)} style={{ display:"flex", alignItems:"center", gap:12, cursor:"pointer", background:item.done?"rgba(255,255,255,0.02)":"rgba(255,255,255,0.06)", borderRadius:14, padding:"12px 14px", transition:"all 0.2s", opacity:item.done?0.5:1 }}>
-                  <div style={{ width:22, height:22, borderRadius:"50%", flexShrink:0, border:item.done?"none":`2px solid ${USERS[item.by]?.color}`, background:item.done?USERS[item.by]?.color:"transparent", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, transition:"all 0.2s" }}>
-                    {item.done && "✓"}
+                <div key={item.id} style={{ background:item.done?"rgba(255,255,255,0.02)":"rgba(255,255,255,0.06)", borderRadius:14, padding:"10px 14px", opacity:item.done?0.5:1, transition:"all 0.2s" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div onClick={() => toggleItem(item.id, item.done)} style={{ width:22, height:22, borderRadius:"50%", flexShrink:0, border:item.done?"none":`2px solid ${USERS[item.by]?.color}`, background:item.done?USERS[item.by]?.color:"transparent", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, cursor:"pointer", transition:"all 0.2s" }}>
+                      {item.done && "✓"}
+                    </div>
+                    <div onClick={() => toggleItem(item.id, item.done)} style={{ flex:1, cursor:"pointer" }}>
+                      <div style={{ fontWeight:600, fontSize:15, textDecoration:item.done?"line-through":"none", color:item.done?"#9e9cb8":"#FFFFFE" }}>{item.text}</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); deleteItem(item.id); }} style={{ background:"none", border:"none", color:"#ff5566", cursor:"pointer", fontSize:18, opacity:0.6 }}>×</button>
                   </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:600, fontSize:15, textDecoration:item.done?"line-through":"none", color:item.done?"#9e9cb8":"#FFFFFE" }}>{item.text}</div>
-                    <div style={{ fontSize:11, color:"#9e9cb8", marginTop:1 }}>{USERS[item.by]?.emoji} {USERS[item.by]?.name}</div>
+                  {/* Owner picker for each item */}
+                  <div style={{ display:"flex", gap:5, marginTop:7, marginLeft:34 }}>
+                    {Object.entries(USERS).map(([key, u]) => (
+                      <button key={key} onClick={() => updateItemOwner(item.id, key)} style={{ background:item.by===key?u.color:"rgba(255,255,255,0.06)", border:"none", borderRadius:12, padding:"3px 8px", color:"#fff", fontWeight:700, fontSize:10, cursor:"pointer", display:"flex", alignItems:"center", gap:2, transition:"all 0.15s" }}>
+                        {u.emoji} {u.name.split(" ")[0]}
+                      </button>
+                    ))}
                   </div>
-                  <button onClick={e => { e.stopPropagation(); deleteItem(item.id); }} style={{ background:"none", border:"none", color:"#ff5566", cursor:"pointer", fontSize:18, opacity:0.6 }}>×</button>
                 </div>
               ))}
             </div>
